@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>DVM Flyer Viewer</title>
+
+    <script>
+      // Runs before the Flipp SDK loads. The SDK requests data with XHR, so requests are rerouted at open():
+      // config.json, the merchant lookup and the Curator list go to prepared blob responses, and single
+      // Curator publication requests get includeUpcoming=true.
+      (() => {
+        const CURATOR = "https://dev-api.flipp.com/curator/v2/publications";
+        window.__flyerRouting = null; // { configBlob, merchantBlob, listBlob }
+
+        function route(raw) {
+          const r = window.__flyerRouting;
+          if (!r || !raw) return raw;
+          let url;
+          try { url = new URL(String(raw), location.href); } catch { return raw; }
+          const path = url.origin + url.pathname.replace(/\/$/, "");
+
+          if (/^https:\/\/aq\.flippenterprise\.net\/\d+\/config\.json$/.test(path)) return r.configBlob || raw;
+          if (path.startsWith("https://dam.flippenterprise.net/hosted/merchant/")) return r.merchantBlob || raw;
+          if (path.startsWith("https://dam.flippenterprise.net/hosted/store/")) return r.storeBlob || raw;
+          if (path === CURATOR) return r.listBlob;
+          if (path.startsWith(CURATOR + "/")) {
+            url.searchParams.set("includeUpcoming", "true");
+            return url.href;
+          }
+          return raw;
+        }
+
+        const origOpen = XMLHttpRequest.prototype.open;
+        XMLHttpRequest.prototype.open = function (method, url, ...rest) {
+          return origOpen.call(this, method, route(url), ...rest);
+        };
+
+        const origFetch = window.fetch;
+        window.fetch = function (input, init) {
+          const isUrl = typeof input === "string" || input instanceof URL;
+          return origFetch.call(this, isUrl ? route(input) : input, init);
+        };
+      })();
+    </script>
+
+    <script
+      src="https://aq.flippenterprise.net/6737/iframe.js"
+      id="flipp-storefront-script"
+    ></script>
+
+    <style>
+      :root {
+        --bg: #0b0f17;
+        --panel: rgba(255, 255, 255, 0.07);
+        --panel2: rgba(255, 255, 255, 0.05);
+        --text: rgba(255, 255, 255, 0.92);
+        --muted: rgba(255, 255, 255, 0.68);
+        --border: rgba(255, 255, 255, 0.12);
+        --shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+        --radius: 18px;
+      }
+
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+        color: var(--text);
+        background: radial-gradient(1200px 600px at 20% 0%, rgba(104, 156, 255, 0.12), transparent 50%),
+          radial-gradient(1000px 700px at 90% 20%, rgba(255, 126, 179, 0.10), transparent 55%),
+          var(--bg);
+      }
+
+      .wrap { width: 80%; margin: 0 auto; padding: 18px 0; }
+
+      details.controls, .main {
+        background: linear-gradient(180deg, var(--panel), var(--panel2));
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        box-shadow: var(--shadow);
+        overflow: clip;
+      }
+
+      summary {
+        list-style: none;
+        cursor: pointer;
+        padding: 14px 16px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        user-select: none;
+      }
+      summary::-webkit-details-marker { display: none; }
+
+      .title { font-size: 14px; letter-spacing: 0.2px; font-weight: 700; }
+      .subtitle { font-size: 12px; color: var(--muted); }
+
+      .chev {
+        width: 36px; height: 36px;
+        border-radius: 12px;
+        border: 1px solid var(--border);
+        display: grid; place-items: center;
+        background: rgba(255,255,255,0.04);
+        transition: transform 180ms ease;
+      }
+      details:not([open]) > summary .chev { transform: rotate(180deg); }
+
+      .controls-body { padding: 0 16px 16px 16px; border-top: 1px solid rgba(255, 255, 255, 0.08); }
+
+      .grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 12px; margin-top: 14px; }
+      .field { grid-column: span 4; display: flex; flex-direction: column; gap: 6px; }
+      .field.half { grid-column: span 6; }
+
+      label { font-size: 12px; color: var(--muted); }
+
+      input {
+        width: 100%;
+        padding: 12px;
+        border-radius: 14px;
+        border: 1px solid var(--border);
+        background: rgba(0, 0, 0, 0.18);
+        color: var(--text);
+        outline: none;
+        font: inherit;
+      }
+      input:focus { border-color: rgba(104, 156, 255, 0.55); box-shadow: 0 0 0 4px rgba(104, 156, 255, 0.16); }
+
+      details.advanced { margin-top: 12px; }
+      details.advanced > summary { padding: 4px 0; font-size: 12px; color: var(--muted); justify-content: flex-start; gap: 6px; }
+      details.advanced > summary::before { content: "▸"; transition: transform 150ms ease; }
+      details.advanced[open] > summary::before { transform: rotate(90deg); }
+      details.advanced .grid { margin-top: 8px; }
+
+      .actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 14px; }
+
+      button {
+        border: 1px solid var(--border);
+        background: rgba(255, 255, 255, 0.08);
+        color: var(--text);
+        border-radius: 14px;
+        padding: 10px 14px;
+        cursor: pointer;
+        font-weight: 650;
+        font: inherit;
+        font-weight: 650;
+      }
+      button.primary {
+        background: linear-gradient(180deg, rgba(104,156,255,0.35), rgba(104,156,255,0.18));
+        border-color: rgba(104,156,255,0.55);
+      }
+      button:disabled { opacity: 0.5; cursor: default; }
+      button:active { transform: translateY(1px); }
+
+      .hint { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+      .hint.ok { color: #7affc0; }
+      .hint.err { color: #ff9a9a; }
+
+      .main { margin-top: 14px; padding: 12px; }
+
+      #flipp-container {
+        min-height: 70vh;
+        background: rgba(0, 0, 0, 0.12);
+        border: 1px dashed rgba(255,255,255,0.14);
+        border-radius: 16px;
+        padding: 10px;
+      }
+
+      .empty { color: var(--muted); font-size: 13px; text-align: center; padding: 60px 16px; }
+
+      @media (max-width: 900px) {
+        .wrap { width: auto; padding: 16px; }
+        .field, .field.half { grid-column: span 12; }
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="wrap">
+      <details class="controls" open>
+        <summary>
+          <div>
+            <div class="title">Flyer lookup</div>
+            <div class="subtitle">Enter a publication global ID, merchant ID and store code, then Load</div>
+          </div>
+          <div class="chev" aria-hidden="true">⌃</div>
+        </summary>
+
+        <form class="controls-body" id="form" autocomplete="off">
+          <div class="grid">
+            <div class="field">
+              <label for="globalId">Global ID</label>
+              <input id="globalId" placeholder="e.g. 01M3M9NSBX3GDMV79X2PHM2FB7" spellcheck="false" />
+            </div>
+            <div class="field">
+              <label for="merchantId">Merchant ID</label>
+              <input id="merchantId" inputmode="numeric" placeholder="e.g. 208" />
+            </div>
+            <div class="field">
+              <label for="storeCode">Store code</label>
+              <input id="storeCode" placeholder="e.g. 246" />
+            </div>
+          </div>
+
+          <details class="advanced">
+            <summary>Advanced: SDK credentials</summary>
+            <div class="grid">
+              <div class="field half">
+                <label for="accessToken">Access token (sent as Curator Authorization)</label>
+                <input id="accessToken" spellcheck="false" />
+              </div>
+              <div class="field half">
+                <label for="merchantNameIdentifier">Merchant name identifier (optional)</label>
+                <input id="merchantNameIdentifier" placeholder="e.g. shoppersdrugmart" spellcheck="false" />
+              </div>
+            </div>
+          </details>
+
+          <div class="actions">
+            <button class="primary" id="loadBtn" type="submit">Load flyer</button>
+            <button id="copyLinkBtn" type="button">Copy link with params</button>
+            <span class="hint" id="hint"></span>
+          </div>
+        </form>
+      </details>
+
+      <section class="main" aria-label="Flyer">
+        <div id="flipp-container"><div class="empty">Enter the values above and click Load flyer.</div></div>
+      </section>
+    </div>
+
+    <script>
+      const CURATOR_BASE = "https://dev-api.flipp.com/curator/v2/publications";
+      const DEFAULT_ACCESS_TOKEN = "1f12a442b4517171cd23ff13a2a18519";
+      const FIELDS = ["globalId", "merchantId", "storeCode", "accessToken", "merchantNameIdentifier"];
+      const $ = (id) => document.getElementById(id);
+
+      function setStatus(kind, text) {
+        $("hint").className = kind ? `hint ${kind}` : "hint";
+        $("hint").textContent = text;
+      }
+
+      function readInputs() {
+        return Object.fromEntries(FIELDS.map((f) => [f, $(f).value.trim()]));
+      }
+
+      function setQueryParams(values) {
+        const url = new URL(location.href);
+        FIELDS.forEach((f) => (values[f] ? url.searchParams.set(f, values[f]) : url.searchParams.delete(f)));
+        history.replaceState({}, "", url);
+        return url.toString();
+      }
+
+      function buildPublicationUrl({ globalId, merchantId, storeCode }) {
+        const url = new URL(`${CURATOR_BASE}/${encodeURIComponent(globalId)}`);
+        url.searchParams.set("merchantId", merchantId);
+        url.searchParams.set("storeCode", storeCode);
+        url.searchParams.set("renderingMetadataType", "RENDERING_METADATA_TYPE_DVM_TEMPLATE");
+        url.searchParams.set("includeUpcoming", "true");
+        return url;
+      }
+
+      // Shape the single-publication response like an item from the publications list.
+      function toListItem(pub) {
+        const { sections, rendering, storeMetadata, ...rest } = pub;
+        return { categories: [], ...rest, renderingMetadataTypes: ["DVM_TEMPLATE"] };
+      }
+
+      let routingBlobs = [];
+      const jsonBlob = (data) => {
+        const url = URL.createObjectURL(new Blob([JSON.stringify(data)], { type: "application/json" }));
+        routingBlobs.push(url);
+        return url;
+      };
+
+      const fetchOk = (url) => fetch(url).then((r) => (r.ok ? r : null), () => null);
+
+      async function buildRouting({ merchantId, storeCode, accessToken }, pub, nameIdentifier) {
+        window.__flyerRouting = null;
+        routingBlobs.forEach(URL.revokeObjectURL);
+        routingBlobs = [];
+
+        const dam = "https://dam.flippenterprise.net/hosted";
+        const auth = `locale=en&access_token=${encodeURIComponent(accessToken)}`;
+        const id = encodeURIComponent(nameIdentifier);
+
+        const [cfgResp, merchantResp, storeResp] = await Promise.all([
+          fetchOk(`https://aq.flippenterprise.net/${encodeURIComponent(merchantId)}/config.json`),
+          fetchOk(`${dam}/merchant/${id}?${auth}`),
+          fetchOk(`${dam}/store/${id}?${auth}&store_code=${encodeURIComponent(storeCode)}`),
+        ]);
+
+        const cfg = cfgResp ? await cfgResp.json() : {};
+        cfg.integrations = { ...(cfg.integrations || {}), publicationFeedStrategy: "CURATOR_ONLY", isDvmEnabled: true };
+
+        // Merchant and store lookups only succeed with the identifier that matches the token; otherwise stand in.
+        const merchantBlob = merchantResp ? null : jsonBlob({
+          name_identifier: nameIdentifier,
+          name: `Merchant ${merchantId}`,
+          country: "US",
+          logo_url: "",
+        });
+        const storeName = (pub.storeMetadata && pub.storeMetadata.name) || `Store ${storeCode}`;
+        const storeBlob = storeResp ? null : jsonBlob({
+          id: 0,
+          name: storeName,
+          merchant_store_code: storeCode,
+          postal_code: "",
+          address: "",
+          city: "",
+        });
+
+        return {
+          configBlob: jsonBlob(cfg),
+          merchantBlob,
+          storeBlob,
+          listBlob: jsonBlob({ publications: [toListItem(pub)], total: 1, publicationPlaces: [] }),
+        };
+      }
+
+      function resetContainer(message) {
+        const fresh = document.createElement("div");
+        fresh.id = "flipp-container";
+        if (message) fresh.innerHTML = `<div class="empty"></div>`, fresh.firstChild.textContent = message;
+        $("flipp-container").replaceWith(fresh);
+        return fresh;
+      }
+
+      function waitForFlippSDK({ timeoutMs = 8000, pollMs = 50 } = {}) {
+        const started = Date.now();
+        return new Promise((resolve, reject) => {
+          const t = setInterval(() => {
+            if (window.Flipp && window.Flipp.Storefront) { clearInterval(t); resolve(); }
+            else if (Date.now() - started > timeoutMs) { clearInterval(t); reject(new Error("Flipp SDK not available")); }
+          }, pollMs);
+        });
+      }
+
+      const log = (label) => (e) => console.log(label, e);
+      const analyticsDelegate = {
+        onEngagement: log("Engagement data:"),
+        onItemClick: log("Item click data:"),
+        onItemView: log("Item view data:"),
+        onOpen: log("Open data:"),
+        onFlyerView: log("Flyer view data:"),
+      };
+
+      async function loadFlyer() {
+        const values = readInputs();
+
+        const missing = ["globalId", "merchantId", "storeCode", "accessToken"].filter((f) => !values[f]);
+        if (missing.length) {
+          setStatus("err", `Fill in: ${missing.join(", ")}`);
+          if (missing.includes("accessToken")) $("accessToken").closest("details").open = true;
+          return;
+        }
+
+        setQueryParams(values);
+        const pubUrl = buildPublicationUrl(values);
+        $("loadBtn").disabled = true;
+        setStatus("", "Requesting flyer from Curator…");
+
+        let pub;
+        try {
+          const resp = await fetch(pubUrl, { headers: { Authorization: values.accessToken } });
+          const body = await resp.json().catch(() => ({}));
+          if (!resp.ok) throw new Error(`${resp.status}: ${body.error || body.message || resp.statusText}`);
+          pub = body.publication;
+          if (!pub || !pub.globalId) throw new Error("Response contained no publication");
+        } catch (e) {
+          console.error(e);
+          setStatus("err", "No flyer returned");
+          resetContainer(`Curator did not return a flyer. ${e.message}`);
+          $("loadBtn").disabled = false;
+          return;
+        }
+
+        setStatus("", "Loading SDK…");
+
+        try {
+          await waitForFlippSDK();
+        } catch (e) {
+          setStatus("err", "Flipp SDK not available. Check network access to aq.flippenterprise.net.");
+          $("loadBtn").disabled = false;
+          return;
+        }
+
+        const nameIdentifier = values.merchantNameIdentifier || `merchant-${values.merchantId}`;
+        try {
+          window.__flyerRouting = await buildRouting(values, pub, nameIdentifier);
+        } catch (e) {
+          console.error(e);
+          setStatus("err", `Could not load merchant config: ${e.message}`);
+          $("loadBtn").disabled = false;
+          return;
+        }
+        const container = resetContainer();
+        setStatus("", "Rendering…");
+
+        try {
+          const storefront = new Flipp.Storefront({
+            accessToken: values.accessToken,
+            merchantId: values.merchantId,
+            merchantNameIdentifier: nameIdentifier,
+            storeCode: values.storeCode,
+            flyerGlobalId: pub.globalId,
+            analyticsDelegate,
+          });
+          storefront.renderStorefront(container);
+          setStatus("ok", "Rendered");
+          $("form").closest("details").open = false;
+        } catch (e) {
+          console.error(e);
+          setStatus("err", "Render failed. Open DevTools console for details.");
+        } finally {
+          $("loadBtn").disabled = false;
+        }
+      }
+
+      window.addEventListener("load", () => {
+        const params = new URLSearchParams(location.search);
+        FIELDS.forEach((f) => ($(f).value = params.get(f) || ""));
+        if (!$("accessToken").value) $("accessToken").value = DEFAULT_ACCESS_TOKEN;
+
+        $("form").addEventListener("submit", (e) => { e.preventDefault(); loadFlyer(); });
+
+        $("copyLinkBtn").addEventListener("click", async () => {
+          const url = setQueryParams(readInputs());
+          try {
+            await navigator.clipboard.writeText(url);
+            setStatus("ok", "Link copied");
+          } catch {
+            $("hint").textContent = url;
+          }
+        });
+
+        if (params.get("globalId") && params.get("merchantId") && params.get("storeCode")) loadFlyer();
+      });
+    </script>
+  </body>
+</html>
