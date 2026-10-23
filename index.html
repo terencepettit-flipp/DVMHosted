@@ -221,9 +221,16 @@
         return Object.fromEntries(FIELDS.map((f) => [f, $(f).value.trim()]));
       }
 
-      function setQueryParams(values) {
+      let storefrontRendered = false;
+
+      function urlWithParams(values) {
         const url = new URL(location.href);
         FIELDS.forEach((f) => (values[f] ? url.searchParams.set(f, values[f]) : url.searchParams.delete(f)));
+        return url;
+      }
+
+      function setQueryParams(values) {
+        const url = urlWithParams(values);
         history.replaceState({}, "", url);
         return url.toString();
       }
@@ -337,6 +344,13 @@
           return;
         }
 
+        // The Flipp SDK is a per-page singleton that caches the publication list, so a second render in the
+        // same page keeps showing the first flyer. Reload with the new params instead.
+        if (storefrontRendered) {
+          location.assign(urlWithParams(values));
+          return;
+        }
+
         setQueryParams(values);
         const pubUrl = buildPublicationUrl(values);
         $("loadBtn").disabled = true;
@@ -389,6 +403,7 @@
             analyticsDelegate,
           });
           storefront.renderStorefront(container);
+          storefrontRendered = true;
           setStatus("ok", "Rendered");
           $("form").closest("details").open = false;
         } catch (e) {
