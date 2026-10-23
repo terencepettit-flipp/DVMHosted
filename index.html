@@ -6,9 +6,9 @@
     <title>DVM Flyer Viewer</title>
 
     <script>
-      // Runs before the Flipp SDK loads. The SDK requests data with XHR, so requests are rerouted at open():
-      // config.json, the merchant lookup and the Curator list go to prepared blob responses, and single
-      // Curator publication requests get includeUpcoming=true.
+      // Runs before the Flipp SDK loads. The SDK requests data with XHR, so requests are rerouted at open()
+      // to prepared blob responses. The SDK's Curator calls (hardcoded to dev-api) are answered from the
+      // publication this page already fetched through the DVM previews proxy.
       (() => {
         const CURATOR = "https://dev-api.flipp.com/curator/v2/publications";
         window.__flyerRouting = null; // { configBlob, merchantBlob, storeBlob, listBlob, publicationBlob }
@@ -24,11 +24,7 @@
           if (path.startsWith("https://dam.flippenterprise.net/hosted/merchant/")) return r.merchantBlob || raw;
           if (path.startsWith("https://dam.flippenterprise.net/hosted/store/")) return r.storeBlob || raw;
           if (path === CURATOR) return r.listBlob;
-          if (path.startsWith(CURATOR + "/")) {
-            if (r.publicationBlob) return r.publicationBlob;
-            url.searchParams.set("includeUpcoming", "true");
-            return url.href;
-          }
+          if (path.startsWith(CURATOR + "/")) return r.publicationBlob;
           return raw;
         }
 
@@ -110,7 +106,6 @@
 
       .grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 12px; margin-top: 14px; }
       .field { grid-column: span 4; display: flex; flex-direction: column; gap: 6px; }
-      .field.half { grid-column: span 6; }
       .field.wide { grid-column: span 12; }
 
       label { font-size: 12px; color: var(--muted); }
@@ -127,11 +122,6 @@
       }
       input:focus { border-color: rgba(104, 156, 255, 0.55); box-shadow: 0 0 0 4px rgba(104, 156, 255, 0.16); }
 
-      details.advanced { margin-top: 12px; }
-      details.advanced > summary { padding: 4px 0; font-size: 12px; color: var(--muted); justify-content: flex-start; gap: 6px; }
-      details.advanced > summary::before { content: "▸"; transition: transform 150ms ease; }
-      details.advanced[open] > summary::before { transform: rotate(90deg); }
-      details.advanced .grid { margin-top: 8px; }
 
       .actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 14px; }
 
@@ -165,7 +155,7 @@
 
       @media (max-width: 900px) {
         .wrap { width: auto; padding: 16px; }
-        .field, .field.half { grid-column: span 12; }
+        .field { grid-column: span 12; }
       }
     </style>
   </head>
@@ -201,20 +191,6 @@
             </div>
           </div>
 
-          <details class="advanced">
-            <summary>Advanced: SDK credentials</summary>
-            <div class="grid">
-              <div class="field half">
-                <label for="accessToken">Access token (sent as Curator Authorization)</label>
-                <input id="accessToken" spellcheck="false" />
-              </div>
-              <div class="field half">
-                <label for="merchantNameIdentifier">Merchant name identifier (optional)</label>
-                <input id="merchantNameIdentifier" placeholder="e.g. shoppersdrugmart" spellcheck="false" />
-              </div>
-            </div>
-          </details>
-
           <div class="actions">
             <button class="primary" id="loadBtn" type="submit">Load flyer</button>
             <button id="copyLinkBtn" type="button">Copy link with params</button>
@@ -229,9 +205,11 @@
     </div>
 
     <script>
-      const CURATOR_BASE = "https://dev-api.flipp.com/curator/v2/publications";
-      const DEFAULT_ACCESS_TOKEN = "1f12a442b4517171cd23ff13a2a18519";
-      const FIELDS = ["globalId", "merchantId", "storeCode", "templateUrl", "accessToken", "merchantNameIdentifier"];
+      const CURATOR_BASE = "https://dvm-previews.flippback.com/api/curator/v2/publications";
+      // The SDK requires a token, but flyer data comes through the proxy, so any working token will do.
+      const ACCESS_TOKEN = "1f12a442b4517171cd23ff13a2a18519";
+      const FIELDS = ["globalId", "merchantId", "storeCode", "templateUrl"];
+      const merchantNameIdentifier = new URLSearchParams(location.search).get("merchantNameIdentifier") || "";
       const $ = (id) => document.getElementById(id);
 
       function setStatus(kind, text) {
@@ -274,14 +252,14 @@
 
       const fetchOk = (url) => fetch(url).then((r) => (r.ok ? r : null), () => null);
 
-      async function buildRouting({ merchantId, storeCode, accessToken, templateUrl }, body, nameIdentifier) {
+      async function buildRouting({ merchantId, storeCode, templateUrl }, body, nameIdentifier) {
         const pub = body.publication;
         window.__flyerRouting = null;
         routingBlobs.forEach(URL.revokeObjectURL);
         routingBlobs = [];
 
         const dam = "https://dam.flippenterprise.net/hosted";
-        const auth = `locale=en&access_token=${encodeURIComponent(accessToken)}`;
+        const auth = `locale=en&access_token=${encodeURIComponent(ACCESS_TOKEN)}`;
         const id = encodeURIComponent(nameIdentifier);
 
         const [cfgResp, merchantResp, storeResp] = await Promise.all([
@@ -315,12 +293,11 @@
           merchantBlob,
           storeBlob,
           listBlob: jsonBlob({ publications: [toListItem(pub)], total: 1, publicationPlaces: [] }),
-          publicationBlob: templateUrl
-            ? jsonBlob({
-                ...body,
-                publication: { ...pub, rendering: { ...pub.rendering, renderingMetadataType: "DVM_TEMPLATE", templateUrl } },
-              })
-            : null,
+          publicationBlob: jsonBlob(
+            templateUrl
+              ? { ...body, publication: { ...pub, rendering: { ...pub.rendering, renderingMetadataType: "DVM_TEMPLATE", templateUrl } } }
+              : body
+          ),
         };
       }
 
@@ -354,10 +331,9 @@
       async function loadFlyer() {
         const values = readInputs();
 
-        const missing = ["globalId", "merchantId", "storeCode", "accessToken"].filter((f) => !values[f]);
+        const missing = ["globalId", "merchantId", "storeCode"].filter((f) => !values[f]);
         if (missing.length) {
           setStatus("err", `Fill in: ${missing.join(", ")}`);
-          if (missing.includes("accessToken")) $("accessToken").closest("details").open = true;
           return;
         }
 
@@ -368,7 +344,7 @@
 
         let pub, body;
         try {
-          const resp = await fetch(pubUrl, { headers: { Authorization: values.accessToken } });
+          const resp = await fetch(pubUrl);
           body = await resp.json().catch(() => ({}));
           if (!resp.ok) throw new Error(`${resp.status}: ${body.error || body.message || resp.statusText}`);
           pub = body.publication;
@@ -391,7 +367,7 @@
           return;
         }
 
-        const nameIdentifier = values.merchantNameIdentifier || `merchant-${values.merchantId}`;
+        const nameIdentifier = merchantNameIdentifier || `merchant-${values.merchantId}`;
         try {
           window.__flyerRouting = await buildRouting(values, body, nameIdentifier);
         } catch (e) {
@@ -405,7 +381,7 @@
 
         try {
           const storefront = new Flipp.Storefront({
-            accessToken: values.accessToken,
+            accessToken: ACCESS_TOKEN,
             merchantId: values.merchantId,
             merchantNameIdentifier: nameIdentifier,
             storeCode: values.storeCode,
@@ -426,8 +402,6 @@
       window.addEventListener("load", () => {
         const params = new URLSearchParams(location.search);
         FIELDS.forEach((f) => ($(f).value = params.get(f) || ""));
-        if (!$("accessToken").value) $("accessToken").value = DEFAULT_ACCESS_TOKEN;
-
         $("form").addEventListener("submit", (e) => { e.preventDefault(); loadFlyer(); });
 
         $("copyLinkBtn").addEventListener("click", async () => {
