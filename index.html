@@ -11,7 +11,7 @@
       // Curator publication requests get includeUpcoming=true.
       (() => {
         const CURATOR = "https://dev-api.flipp.com/curator/v2/publications";
-        window.__flyerRouting = null; // { configBlob, merchantBlob, listBlob }
+        window.__flyerRouting = null; // { configBlob, merchantBlob, storeBlob, listBlob, publicationBlob }
 
         function route(raw) {
           const r = window.__flyerRouting;
@@ -25,6 +25,7 @@
           if (path.startsWith("https://dam.flippenterprise.net/hosted/store/")) return r.storeBlob || raw;
           if (path === CURATOR) return r.listBlob;
           if (path.startsWith(CURATOR + "/")) {
+            if (r.publicationBlob) return r.publicationBlob;
             url.searchParams.set("includeUpcoming", "true");
             return url.href;
           }
@@ -73,7 +74,7 @@
 
       .wrap { width: 80%; margin: 0 auto; padding: 18px 0; }
 
-      details.controls, .main {
+      details.controls {
         background: linear-gradient(180deg, var(--panel), var(--panel2));
         border: 1px solid var(--border);
         border-radius: var(--radius);
@@ -110,6 +111,7 @@
       .grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 12px; margin-top: 14px; }
       .field { grid-column: span 4; display: flex; flex-direction: column; gap: 6px; }
       .field.half { grid-column: span 6; }
+      .field.wide { grid-column: span 12; }
 
       label { font-size: 12px; color: var(--muted); }
 
@@ -155,15 +157,9 @@
       .hint.ok { color: #7affc0; }
       .hint.err { color: #ff9a9a; }
 
-      .main { margin-top: 14px; padding: 12px; }
+      .main { margin-top: 14px; }
 
-      #flipp-container {
-        min-height: 70vh;
-        background: rgba(0, 0, 0, 0.12);
-        border: 1px dashed rgba(255,255,255,0.14);
-        border-radius: 16px;
-        padding: 10px;
-      }
+      #flipp-container { min-height: 70vh; }
 
       .empty { color: var(--muted); font-size: 13px; text-align: center; padding: 60px 16px; }
 
@@ -199,6 +195,10 @@
               <label for="storeCode">Store code</label>
               <input id="storeCode" placeholder="e.g. 246" />
             </div>
+            <div class="field wide">
+              <label for="templateUrl">Template URL (optional, overrides the template Curator returns)</label>
+              <input id="templateUrl" type="url" placeholder="e.g. https://f.wishabi.net/arbitrary_files/…/…_template.json" spellcheck="false" />
+            </div>
           </div>
 
           <details class="advanced">
@@ -231,7 +231,7 @@
     <script>
       const CURATOR_BASE = "https://dev-api.flipp.com/curator/v2/publications";
       const DEFAULT_ACCESS_TOKEN = "1f12a442b4517171cd23ff13a2a18519";
-      const FIELDS = ["globalId", "merchantId", "storeCode", "accessToken", "merchantNameIdentifier"];
+      const FIELDS = ["globalId", "merchantId", "storeCode", "templateUrl", "accessToken", "merchantNameIdentifier"];
       const $ = (id) => document.getElementById(id);
 
       function setStatus(kind, text) {
@@ -274,7 +274,8 @@
 
       const fetchOk = (url) => fetch(url).then((r) => (r.ok ? r : null), () => null);
 
-      async function buildRouting({ merchantId, storeCode, accessToken }, pub, nameIdentifier) {
+      async function buildRouting({ merchantId, storeCode, accessToken, templateUrl }, body, nameIdentifier) {
+        const pub = body.publication;
         window.__flyerRouting = null;
         routingBlobs.forEach(URL.revokeObjectURL);
         routingBlobs = [];
@@ -314,6 +315,12 @@
           merchantBlob,
           storeBlob,
           listBlob: jsonBlob({ publications: [toListItem(pub)], total: 1, publicationPlaces: [] }),
+          publicationBlob: templateUrl
+            ? jsonBlob({
+                ...body,
+                publication: { ...pub, rendering: { ...pub.rendering, renderingMetadataType: "DVM_TEMPLATE", templateUrl } },
+              })
+            : null,
         };
       }
 
@@ -359,10 +366,10 @@
         $("loadBtn").disabled = true;
         setStatus("", "Requesting flyer from Curator…");
 
-        let pub;
+        let pub, body;
         try {
           const resp = await fetch(pubUrl, { headers: { Authorization: values.accessToken } });
-          const body = await resp.json().catch(() => ({}));
+          body = await resp.json().catch(() => ({}));
           if (!resp.ok) throw new Error(`${resp.status}: ${body.error || body.message || resp.statusText}`);
           pub = body.publication;
           if (!pub || !pub.globalId) throw new Error("Response contained no publication");
@@ -386,7 +393,7 @@
 
         const nameIdentifier = values.merchantNameIdentifier || `merchant-${values.merchantId}`;
         try {
-          window.__flyerRouting = await buildRouting(values, pub, nameIdentifier);
+          window.__flyerRouting = await buildRouting(values, body, nameIdentifier);
         } catch (e) {
           console.error(e);
           setStatus("err", `Could not load merchant config: ${e.message}`);
